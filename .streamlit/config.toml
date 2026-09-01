@@ -1,0 +1,11 @@
+[server]
+# Keep uploads small — we only need a picture to sample colors from.
+maxUploadSize = 5
+headless = true
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "light"
+primaryColor = "#E9724C"

@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Environment & secrets
+.env
+.streamlit/secrets.toml
+
+# OS / tooling
+.DS_Store
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# osmnx cache
+cache/
