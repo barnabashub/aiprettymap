@@ -32,6 +32,27 @@ DEFAULT_MODEL = os.environ.get("HF_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 # (e.g. "hf-inference", "together", "nebius").
 PROVIDER = os.environ.get("HF_PROVIDER", "auto")
 
+# Availability of a given model depends on which providers the user has enabled.
+# To stay robust for beginners we try a few widely-served, non-gated instruct
+# models until one works, then remember it for the rest of the session.
+FALLBACK_MODELS = [
+    "Qwen/Qwen2.5-72B-Instruct",
+    "mistralai/Mistral-7B-Instruct-v0.3",
+    "meta-llama/Llama-3.1-8B-Instruct",
+    "Qwen/Qwen2.5-7B-Instruct",
+]
+
+# Errors that mean "this specific model won't work, try another one".
+_MODEL_LEVEL_ERROR_HINTS = (
+    "model_not_supported",
+    "not supported by any provider",
+    "not found",
+    "does not exist",
+)
+
+# Remembered across calls within a process once we find a model that works.
+_working_model: str | None = None
+
 _SYSTEM_PROMPT = f"""You translate a user's free-text request into a JSON patch that \
 changes a stylized map. You NEVER answer in prose — you only output JSON.
 
@@ -109,15 +130,34 @@ def _friendly_error(exc: Exception) -> str:
         )
     if status == 401 or "invalid" in text.lower() and "token" in text.lower():
         return "Hugging Face token looks invalid (401). Double-check you pasted it correctly."
-    if status == 404 or "not found" in text.lower():
+    if _is_model_level_error(exc):
         return (
-            f"The model '{DEFAULT_MODEL}' isn't available via the selected provider "
-            "(404). Try another model in the sidebar, e.g. "
-            "'meta-llama/Llama-3.1-8B-Instruct' or 'mistralai/Mistral-7B-Instruct-v0.3'."
+            "None of the tried models are available on your enabled Hugging Face "
+            "providers. Enable a (free) provider at "
+            "huggingface.co/settings/inference-providers, or set a specific model "
+            "in the sidebar / HF_MODEL that one of your providers serves."
         )
     if status in (429, 503) or "rate" in text.lower() or "loading" in text.lower():
         return "The model is busy or rate-limited right now. Wait a moment and try again."
     return f"Could not reach the AI model ({type(exc).__name__}): {exc}"
+
+
+def _is_model_level_error(exc: Exception) -> bool:
+    """True if the error is about the *model* (so trying another one may help)."""
+    text = str(exc).lower()
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status == 404:
+        return True
+    return any(hint in text for hint in _MODEL_LEVEL_ERROR_HINTS)
+
+
+def _candidate_models(preferred: str) -> list[str]:
+    """Ordered, de-duplicated list of models to try (preferred/working first)."""
+    ordered: list[str] = []
+    for m in [_working_model, preferred, *FALLBACK_MODELS]:
+        if m and m not in ordered:
+            ordered.append(m)
+    return ordered
 
 
 def parse_instruction(
@@ -159,17 +199,35 @@ def parse_instruction(
         },
     ]
 
-    try:
-        client = InferenceClient(api_key=token, provider=PROVIDER)
-        completion = client.chat_completion(
-            messages=messages,
-            model=model,
-            max_tokens=400,
-            temperature=0.1,
+    global _working_model
+    client = InferenceClient(api_key=token, provider=PROVIDER)
+
+    reply = None
+    last_exc: Exception | None = None
+    for candidate in _candidate_models(model):
+        try:
+            completion = client.chat_completion(
+                messages=messages,
+                model=candidate,
+                max_tokens=400,
+                temperature=0.1,
+            )
+            reply = completion.choices[0].message.content or ""
+            _working_model = candidate  # remember for subsequent calls
+            break
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            if _is_model_level_error(exc):
+                continue  # this model isn't available — try the next candidate
+            # Auth / rate-limit / network errors won't be fixed by another model.
+            return ParseResult(changes={}, unsupported=[], error=_friendly_error(exc))
+
+    if reply is None:
+        return ParseResult(
+            changes={},
+            unsupported=[],
+            error=_friendly_error(last_exc) if last_exc else "No AI model available.",
         )
-        reply = completion.choices[0].message.content or ""
-    except Exception as exc:  # network / auth / provider errors
-        return ParseResult(changes={}, unsupported=[], error=_friendly_error(exc))
 
     data = _extract_json(reply)
     if data is None:

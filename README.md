@@ -86,7 +86,7 @@ települnek, ezért Streamlit Cloudon **nincs szükség extra rendszercsomagra**
 |------|----------|
 | **403 / "sufficient permissions"** | A tokennek nincs Inference Providers joga — készíts újat a fenti 3. lépés szerint. |
 | **403 továbbra is** | Nézd meg az ingyenes kereted: https://huggingface.co/settings/billing (szöveges értelmezéshez pár kredit elég). |
-| **404 / "not found"** | Az adott modell nem elérhető a providernél — válts modellt az oldalsávon (pl. `mistralai/Mistral-7B-Instruct-v0.3`), vagy állíts be `HF_PROVIDER`-t. |
+| **"model_not_supported" / 404** | Az app automatikusan végigpróbál több modellt. Ha mind elbukik: engedélyezz egy (ingyenes) providert a https://huggingface.co/settings/inference-providers oldalon, vagy adj meg konkrét modellt az oldalsávon / `HF_MODEL`-ben. |
 | **429 / 503** | A modell épp foglalt — várj pár másodpercet és próbáld újra. |
 | **A helyszín nem található** | Adj meg pontosabb címet/várost, vagy nagyobb sugarat. |
 
