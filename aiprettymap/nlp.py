@@ -27,6 +27,11 @@ from .schema import COLOR_LAYERS, RADIUS_MAX, RADIUS_MIN, SHAPES, STYLE_PRESETS
 # Override with the HF_MODEL environment variable if you prefer another one.
 DEFAULT_MODEL = os.environ.get("HF_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 
+# Which Hugging Face Inference Provider to route through. "auto" lets HF pick any
+# available provider for the model; set HF_PROVIDER to pin a specific one
+# (e.g. "hf-inference", "together", "nebius").
+PROVIDER = os.environ.get("HF_PROVIDER", "auto")
+
 _SYSTEM_PROMPT = f"""You translate a user's free-text request into a JSON patch that \
 changes a stylized map. You NEVER answer in prose — you only output JSON.
 
@@ -89,6 +94,32 @@ def _extract_json(text: str) -> dict[str, Any] | None:
     return None
 
 
+def _friendly_error(exc: Exception) -> str:
+    """Turn a raw Inference exception into an actionable message for the user."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    text = str(exc)
+
+    if status == 403 or "sufficient permissions" in text or "Forbidden" in text:
+        return (
+            "Your Hugging Face token can't call Inference Providers (403). "
+            "Create a fine-grained token at huggingface.co/settings/tokens and "
+            "enable the 'Make calls to Inference Providers' permission (Inference "
+            "section), then use that token. If it persists, check your free "
+            "inference credits at huggingface.co/settings/billing."
+        )
+    if status == 401 or "invalid" in text.lower() and "token" in text.lower():
+        return "Hugging Face token looks invalid (401). Double-check you pasted it correctly."
+    if status == 404 or "not found" in text.lower():
+        return (
+            f"The model '{DEFAULT_MODEL}' isn't available via the selected provider "
+            "(404). Try another model in the sidebar, e.g. "
+            "'meta-llama/Llama-3.1-8B-Instruct' or 'mistralai/Mistral-7B-Instruct-v0.3'."
+        )
+    if status in (429, 503) or "rate" in text.lower() or "loading" in text.lower():
+        return "The model is busy or rate-limited right now. Wait a moment and try again."
+    return f"Could not reach the AI model ({type(exc).__name__}): {exc}"
+
+
 def parse_instruction(
     instruction: str,
     current_state: dict[str, Any],
@@ -129,7 +160,7 @@ def parse_instruction(
     ]
 
     try:
-        client = InferenceClient(api_key=token)
+        client = InferenceClient(api_key=token, provider=PROVIDER)
         completion = client.chat_completion(
             messages=messages,
             model=model,
@@ -138,11 +169,7 @@ def parse_instruction(
         )
         reply = completion.choices[0].message.content or ""
     except Exception as exc:  # network / auth / provider errors
-        return ParseResult(
-            changes={},
-            unsupported=[],
-            error=f"Could not reach the AI model ({type(exc).__name__}): {exc}",
-        )
+        return ParseResult(changes={}, unsupported=[], error=_friendly_error(exc))
 
     data = _extract_json(reply)
     if data is None:

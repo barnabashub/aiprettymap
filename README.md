@@ -72,8 +72,23 @@ települnek, ezért Streamlit Cloudon **nincs szükség extra rendszercsomagra**
 ## Hugging Face token beszerzése (1 perc)
 
 1. Regisztrálj: https://huggingface.co/join
-2. Settings → Access Tokens → **New token** (elég a "Read" jogosultság).
-3. Másold ki (`hf_...`) és add meg az appnak.
+2. Settings → Access Tokens → **Create new token** → típus: **Fine-grained**.
+3. Az **Inference** szekcióban pipáld be: **„Make calls to Inference Providers"**.
+   (Ez a lépés a lényeg — enélkül 403-at kapsz!)
+4. Create → másold ki (`hf_...`) és add meg az appnak.
+
+> A modell a Hugging Face **Inference Providers** szolgáltatásán fut, amihez a
+> tokennek a fenti jogosultság kell. A régi, sima "Read" token ehhez ma már nem elég.
+
+## Hibaelhárítás
+
+| Hiba | Megoldás |
+|------|----------|
+| **403 / "sufficient permissions"** | A tokennek nincs Inference Providers joga — készíts újat a fenti 3. lépés szerint. |
+| **403 továbbra is** | Nézd meg az ingyenes kereted: https://huggingface.co/settings/billing (szöveges értelmezéshez pár kredit elég). |
+| **404 / "not found"** | Az adott modell nem elérhető a providernél — válts modellt az oldalsávon (pl. `mistralai/Mistral-7B-Instruct-v0.3`), vagy állíts be `HF_PROVIDER`-t. |
+| **429 / 503** | A modell épp foglalt — várj pár másodpercet és próbáld újra. |
+| **A helyszín nem található** | Adj meg pontosabb címet/várost, vagy nagyobb sugarat. |
 
 ## Példa utasítások
 
@@ -103,8 +118,9 @@ aiprettymap/
 
 | Változó    | Kötelező | Leírás                                              |
 |------------|----------|-----------------------------------------------------|
-| `HF_TOKEN` | igen     | Hugging Face access token.                          |
-| `HF_MODEL` | nem      | Másik modell (alap: `Qwen/Qwen2.5-7B-Instruct`).    |
+| `HF_TOKEN`    | igen  | Hugging Face access token (Inference Providers joggal). |
+| `HF_MODEL`    | nem   | Másik modell (alap: `Qwen/Qwen2.5-7B-Instruct`).        |
+| `HF_PROVIDER` | nem   | Konkrét provider (alap: `auto`), pl. `hf-inference`.    |
 
 ## Korlátok / megjegyzések
 
